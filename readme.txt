@@ -20,15 +20,17 @@ EFI-software on mainboard --1--> efi executable on EFI partition (has grub baked
 you'll have to enter pass twice, in step 2 and step 3.
 TODO: get rid of entering it in step 3.
 
+
 ______________________________________
 PREPARE PARTITIONS
 
-Create 3 Partitions: EFI (512MB), swap (8461MB 8069MiB), root (all the rest of the drive).
+Create 3 Partitions: EFI (512MB), unformatted (8461MB, 8069MiB; will be set up as crypted swap later), root (all the rest of the drive).
 
 At the end of this, root & swap will be encrypted.
 
 Do "cryptsetup benchmark" and take whatever is fastest.
-"cryptsetup -s 512 luksFormat /dev/sd??", just dont use luks2, grub cant handle that.
+"cryptsetup --cipher aes-xts --key-size 256 --hash sha256 --use-random --verify-passphrase luksFormat /dev/sd??
+just dont use luks2, since grub can't handle that.
 
 "cryptsetup open /dev/sd?? cryptroot"
 "cryptsetup luksDump /dev/sd??" just to visually check.
@@ -38,7 +40,6 @@ Do "cryptsetup benchmark" and take whatever is fastest.
 
 TODO: use a keyfile to only enter passphrase for decrypting HD once
 
-TODO: encrypt swap partition
 
 
 ______________________________________
@@ -197,12 +198,16 @@ blkid|grep LUKS
 echo "cryptroot UUID=XXX none luks" >> /etc/crypttab
 ln -sf /dev/mapper/cryptroot /dev/cryptroot
 
+ls /dev/disk/by-id/ # find out id of swap partition
+echo "swap /dev/disk/by-id/<ID OF SWAP PARTITION> /dev/urandom swap,cipher=aes-cbc-essiv:sha256" >> /etc/crypttab
+
 edit fstab:
 /dev/mapper/cryptroot /           btrfs   defaults,compress=lzo        0       0
 /dev/mapper/cryptroot /home/rob       btrfs   defaults,compress=lzo,commit=120,subvol=@home-rob 0       0
 /dev/mapper/cryptroot /home/rob/volatile       btrfs   defaults,compress=lzo,commit=120,subvol=@home-volatile 0       0
 /dev/mapper/cryptroot /home/rob/const       btrfs   defaults,compress=lzo,commit=120,subvol=@home-const 0       0
 /dev/mapper/cryptroot .snapshots       btrfs   defaults,compress=lzo,commit=120,subvol=@snapshots 0       0
+/dev/mapper/swap  none  swap  sw  0   0
 
 exit
 umount chroot mounts (or don't, doesn't matter much)
@@ -225,4 +230,3 @@ ______________________________________
 DONE
 
 reboot and enjoy
-
