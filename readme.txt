@@ -27,6 +27,7 @@ PREPARE PARTITIONS
 Create 3 Partitions: EFI (512MB), unformatted (8461MB, 8069MiB; will be set up as crypted swap later), root (all the rest of the drive).
 
 At the end of this, root & swap will be encrypted.
+Note: Due to the way encryption of swap is set up here, you will loose suspend-to-disk functionality.
 
 Do "cryptsetup benchmark" and take whatever is fastest.
 "cryptsetup --cipher aes-xts --key-size 256 --hash sha256 --use-random --verify-passphrase luksFormat /dev/sd??
