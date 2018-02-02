@@ -15,10 +15,11 @@ Do "apt-get update ; apt-get install btrfs-tools cryptsetup grub2 grub-efi-amd64
 ______________________________________
 BOOT PROCESS
 
-EFI-software on mainboard --1--> efi executable on EFI partition (has grub baked in) --2--> initrd --3--> debian
+EFI-software on mainboard --1--> efi executable on EFI partition (has grub baked in) --2--> grub --3--> initrd/kernel on encrypted partition
 
-you'll have to enter pass twice, in step 2 and step 3.
-TODO: get rid of entering it in step 3.
+you'll have to enter pass after step 2 so grub can access encrypted partition.
+when grub passes ctrl to kernel, encrypted device is being unmounted.
+so, after step 3 a keyfile will be used by the initrd to access encrypted partition.
 
 
 ______________________________________
@@ -30,16 +31,13 @@ At the end of this, root & swap will be encrypted.
 Note: Due to the way encryption of swap is set up here, you will loose suspend-to-disk functionality.
 
 Do "cryptsetup benchmark" and take whatever is fastest.
-"cryptsetup --cipher aes-xts --key-size 256 --hash sha256 --use-random --verify-passphrase luksFormat /dev/sd??
+cryptsetup --cipher aes-xts --key-size 256 --hash sha256 --use-random --verify-passphrase luksFormat /dev/sd??
 just dont use luks2, since grub can't handle that.
 
 "cryptsetup open /dev/sd?? cryptroot"
 "cryptsetup luksDump /dev/sd??" just to visually check.
 
 "mkfs.btrfs /dev/mapper/cryptroot"
-
-
-TODO: use a keyfile to only enter passphrase for decrypting HD once
 
 
 
@@ -116,11 +114,10 @@ boot into the live system again and repeat step "GET THE OS" (the apt-get stuff)
 ______________________________________
 PREPARE DIRS
 
-once in live-system again, do
-"cryptsetup open /dev/sd?? cryptroot" ; mount /dev/mapper/cryptroot /mnt ; mount /dev/sd?? /mnt/boot/efi"
-to mount root and efi partitions.
+# once in live-system again, mount root and efi partitions
+cryptsetup open /dev/sd?? cryptroot" ; mount /dev/mapper/cryptroot /mnt ; mount /dev/sd?? /mnt/boot/efi
 
-now, the order of operations is important:
+# now, the order of operations is important:
 
 cd /home
 mv rob rob-old # you can delete it as well
@@ -145,9 +142,9 @@ chown -R rob:rob rob/
 
 mkdir /.snapshots
 
-what abou "nodatacow" on a subvolume?
-Within a single file system, it is not possible to mount some subvolumes with nodatacow and others with datacow. The mount option of the first mounted subvolume applies to any other subvolumes.
-So we need to do it for folders.
+# what abou "nodatacow" on a subvolume?
+# Within a single file system, it is not possible to mount some subvolumes with nodatacow and others with datacow. The mount option of the first mounted subvolume applies to any other subvolumes.
+# So we need to do it for folders.
 
 chattr +C -R /mnt/home/rob/const
 lsattr /mnt/home/rob/const # just to check
@@ -165,25 +162,44 @@ chroot .
 ______________________________________
 PREPARE INITRD WITH CRYPTO
 
+# not all that is neccessary, but i don't know which one actually takes...
 echo 'export CRYPTSETUP=y' >> /etc/initramfs-tools/conf.d/cryptsetup
 echo 'export CRYPTSETUP=y' >> /etc/environment
 echo 'export CRYPTSETUP=y' >> /etc/initramfs-tools/conf.d/force-cryptsetup
 echo 'export CRYPTSETUP=y' >> /usr/share/initramfs-tools/conf-hooks.d/forcecryptsetup
-on debian stretch:
+# on debian stretch:
 echo 'export CRYPTSETUP=y' >> /etc/cryptsetup-initramfs/conf-hook
 
-blkid|grep LUKS # get all relevant uuids
+blkid|grep LUKS        # get relevant uuid
+
 echo "target=cryptroot,source=UUID=XXX,key=none,rootdev,discard" >> /etc/initramfs-tools/conf.d/cryptroot
 
+dd bs=512 count=4 if=/dev/urandom of=/hd_keyfile.bin     # create keyfile
+chmod -R g-rwx,o-rwx /hd_keyfile.bin       # only root may access it
+
+cryptsetup luksAddKey /dev/sd?? keyfile.bin
+# enter one already existing pass (i.e. the one, you gave in section PREPARE PARTITIONS)
+# partition can now be unlocked with either password or keyfile.
+
+# preparation for initrd to access hd via keyfile
+echo "cryptroot UUID=??? /hd_keyfile.bin luks,keyscript=/bin/cat" >> /etc/crypttab
+
+# put keyfile also into ramdisk via initramfs-tools hook
+echo "#!/bin/sh" >> /etc/initramfs-tools/hooks/crypto_keyfile
+echo "cp /hd_keyfile.bin \"${DESTDIR}\"" >> /etc/initramfs-tools/hooks/crypto_keyfile
+chmod +x /etc/initramfs-tools/hooks/crypto_keyfile
+
 update-initramfs -u -k all      # or -c for create instead of u
+
+lsinitramfs /boot/???   # check if keyfile is in there
 
 
 ______________________________________
 PREPARE GRUB WITH CRYPTO
 
-we wat grub to put crypto and btrfs into the efi executable
+# we want grub to put crypto and btrfs and everything else neccessary into the efi executable
 
-add "GRUB_ENABLE_CRYPTODISK=y" in /etc/default/grub and
+# add "GRUB_ENABLE_CRYPTODISK=y" in /etc/default/grub and
 GRUB_CMDLINE_LINUX="cryptdevice=/dev/disk/by-uuid/<UUID_OF_LUKS_DEVICE>:cryptroot"
 
 grub-mkconfig > /boot/grub/grub.cfg     # isnt used, cfg is baked in .efi executable.. TODO
@@ -195,14 +211,12 @@ grub-install --efi-directory=/boot/efi --boot-directory=/boot/ --removable --tar
 ______________________________________
 PREPARE CRYPTO RELATED STUFF
 
-blkid|grep LUKS
-echo "cryptroot UUID=XXX none luks" >> /etc/crypttab
 ln -sf /dev/mapper/cryptroot /dev/cryptroot
 
 ls /dev/disk/by-id/ # find out id of swap partition
 echo "swap /dev/disk/by-id/<ID OF SWAP PARTITION> /dev/urandom swap,cipher=aes-cbc-essiv:sha256" >> /etc/crypttab
 
-edit fstab:
+# edit fstab
 /dev/mapper/cryptroot /           btrfs   defaults,compress=lzo        0       0
 /dev/mapper/cryptroot /home/rob       btrfs   defaults,compress=lzo,commit=120,subvol=@home-rob 0       0
 /dev/mapper/cryptroot /home/rob/volatile       btrfs   defaults,compress=lzo,commit=120,subvol=@home-volatile 0       0
