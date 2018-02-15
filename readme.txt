@@ -207,6 +207,7 @@ PREPARE GRUB WITH CRYPTO
 # add "GRUB_ENABLE_CRYPTODISK=y" in /etc/default/grub and
 GRUB_CMDLINE_LINUX="cryptdevice=/dev/disk/by-uuid/<UUID_OF_LUKS_DEVICE>:cryptroot cryptkey=rootfs:/<name of keyfile>"
 # rootfs:/ means "it's in the initrd". if no cryptkey is specified, this defaults to "crypto_keyfile.bin"
+GRUB_CMDLINE_LINUX_DEFAULT="noresume quiet"
 
 grub-mkconfig > /boot/grub/grub.cfg     # isnt used, cfg is baked in .efi executable.. TODO
 
@@ -223,12 +224,13 @@ ls /dev/disk/by-id/ # find out id of swap partition
 echo "swap /dev/disk/by-id/<ID OF SWAP PARTITION> /dev/urandom swap,cipher=aes-cbc-essiv:sha256" >> /etc/crypttab
 
 # edit fstab
-/dev/mapper/cryptroot /           btrfs   defaults,compress=lzo        0       0
-/dev/mapper/cryptroot /home/rob       btrfs   defaults,compress=lzo,commit=120,subvol=@home-rob 0       0
-/dev/mapper/cryptroot /home/rob/volatile       btrfs   defaults,compress=lzo,commit=120,subvol=@home-volatile 0       0
-/dev/mapper/cryptroot /home/rob/const       btrfs   defaults,compress=lzo,commit=120,subvol=@home-const 0       0
-/dev/mapper/cryptroot .snapshots       btrfs   defaults,compress=lzo,commit=120,subvol=@snapshots 0       0
+/dev/mapper/cryptroot /           btrfs   defaults,compress=lzo,noatime        0       0
+/dev/mapper/cryptroot /home/rob       btrfs   defaults,compress=lzo,commit=120,subvol=@home-rob,noatime 0       0
+/dev/mapper/cryptroot /home/rob/volatile       btrfs   defaults,compress=lzo,commit=120,subvol=@home-rob/@volatile-rob,noatime 0       0
+/dev/mapper/cryptroot /home/rob/const       btrfs   defaults,compress=lzo,commit=120,subvol=@home-rob/@const-rob,noatime 0       0
+/dev/mapper/cryptroot /.snapshots       btrfs   defaults,compress=lzo,commit=120,subvol=@snapshots,noatime 0       0
 /dev/mapper/swap  none  swap  sw  0   0
+                                                               
 
 exit
 umount chroot mounts (or don't, doesn't matter much)
