@@ -1,6 +1,8 @@
 install debian 9 stretch on one encrypted btrfs partition including /boot and booting if via EFI
 
 
+WARNING: The following has got some little mistakes here and there. And not working/TODO is: enter key just once; efi-grub should use grub.cfg file
+
 ______________________________________
 GET THE OS
 
@@ -181,6 +183,9 @@ cryptsetup luksAddKey /dev/sd?? keyfile.bin
 # enter one already existing pass (i.e. the one, you gave in section PREPARE PARTITIONS)
 # partition can now be unlocked with either password or keyfile.
 
+# test keyfile. this prints "0" if keyfile works
+cryptsetup --key-file keyfile.bin luksOpen /dev/sd?? someTest --test-passphrase ; echo $?
+
 # preparation for initrd to access hd via keyfile
 echo "cryptroot UUID=??? /hd_keyfile.bin luks,keyscript=/bin/cat" >> /etc/crypttab
 
@@ -200,7 +205,8 @@ PREPARE GRUB WITH CRYPTO
 # we want grub to put crypto and btrfs and everything else neccessary into the efi executable
 
 # add "GRUB_ENABLE_CRYPTODISK=y" in /etc/default/grub and
-GRUB_CMDLINE_LINUX="cryptdevice=/dev/disk/by-uuid/<UUID_OF_LUKS_DEVICE>:cryptroot"
+GRUB_CMDLINE_LINUX="cryptdevice=/dev/disk/by-uuid/<UUID_OF_LUKS_DEVICE>:cryptroot cryptkey=rootfs:/<name of keyfile>"
+# rootfs:/ means "it's in the initrd". if no cryptkey is specified, this defaults to "crypto_keyfile.bin"
 
 grub-mkconfig > /boot/grub/grub.cfg     # isnt used, cfg is baked in .efi executable.. TODO
 
